@@ -1,25 +1,24 @@
 package main
 
 import (
-	"bytes"
-	"encoding/gob"
+	"encoding/binary"
 	"fmt"
 	"log"
 	"os"
 )
 
 func main() {
-	dat, err := os.ReadFile("./tmp/dice.qoi")
+	file, err := os.Open("./tmp/dice.qoi")
 	if err != nil {
-		log.Fatal("read error:", err)
+		log.Fatal("open error:", err)
 	}
 
-	file := decode(dat)
-	fmt.Printf("read file %+v\n", file.Header)
+	header := decodeHeader(file)
+	fmt.Printf("read file %+v\n", header)
 }
 
 type QuiteOkHeader struct {
-	Magic      [4]byte // "qoif" -> 113 111 105 102
+	Magic      [4]byte // "qoif" -> 113, 111, 105, 102
 	Width      uint32
 	Height     uint32
 	Channels   uint8
@@ -31,22 +30,14 @@ type QuiteOkFile struct {
 	Data   []byte
 }
 
-func decode(data []byte) QuiteOkFile {
-	if len(data) < 14 {
-		log.Fatal("cannot decode: ", "data to short")
-	}
-
+func decodeHeader(file *os.File) QuiteOkHeader {
 	var header QuiteOkHeader
-	headerData := data[:14]
-	log.Print("header data len: ", len(headerData), headerData)
-	reader := bytes.NewReader(headerData)
-	dec := gob.NewDecoder(reader)
-	err := dec.Decode(&header)
+	err := binary.Read(file, binary.LittleEndian, &header)
 	if err != nil {
-		log.Fatal("header decode error: ", err)
+		log.Fatal("read file error: ", err)
 	}
-	return QuiteOkFile{
-		Header: header,
-		Data:   data[14:],
+	if header.Magic != [4]byte{113, 111, 105, 102} {
+		log.Fatal("invalid file format: ", "magic invalid")
 	}
+	return header
 }
