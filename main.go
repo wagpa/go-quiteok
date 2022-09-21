@@ -10,22 +10,28 @@ import (
 	"os"
 )
 
+var original *image.Image
+
 func main() {
+	// get original file for debugging
+	oFile, _ := os.Open("./tmp/dice.png")
+	oImg, _ := png.Decode(oFile)
+	original = &oImg
+
+	// actual decoding
 	name := "./tmp/dice.qoi"
 	file := DecodeFile(name)
 	fmt.Printf("read file %+v\n", file.Header)
-
 	img := image.NewRGBA(image.Rect(0, 0, int(file.Header.Width), int(file.Header.Height)))
 	for index, pixel := range file.Pixels {
-		img.Set(index%int(file.Header.Width), index/int(file.Header.Width), pixel)
+		x := index % int(file.Header.Width)
+		y := index / int(file.Header.Width)
+		img.Set(x, y, pixel)
 	}
+
+	// write decoded to png
 	f, _ := os.Create(name + ".png")
 	png.Encode(f, img)
-
-	// tests
-	if len(file.Pixels) != int(file.Header.Width)*int(file.Header.Height) {
-		log.Print("invalid pixels ", len(file.Pixels))
-	}
 }
 
 type QuiteOkHeader struct {
@@ -38,7 +44,7 @@ type QuiteOkHeader struct {
 
 type QuiteOkFile struct {
 	Header QuiteOkHeader
-	Pixels []color.RGBA
+	Pixels []color.NRGBA
 }
 
 const QoiOpRgb = byte(0b11111110)
@@ -82,18 +88,18 @@ func DecodeHeader(data []byte) QuiteOkHeader {
 	}
 }
 
-func DecodePixels(data []byte) []color.RGBA {
+func DecodePixels(data []byte) []color.NRGBA {
 	var cursor int
-	var pixels []color.RGBA
+	var pixels []color.NRGBA
 
-	prev := color.RGBA{A: 255}
-	seen := [64]color.RGBA{}
+	prev := color.NRGBA{A: 255}
+	seen := [64]color.NRGBA{}
 
 	for cursor < len(data)-8 {
+
 		delta, decoded := decodeBlock(data[cursor], data[cursor:cursor+5], &prev, &seen)
 
 		lastDecoded := decoded[len(decoded)-1]
-
 		pixels = append(pixels, decoded...)
 		seen[genIndex(lastDecoded)] = lastDecoded
 		prev = lastDecoded
@@ -105,19 +111,19 @@ func DecodePixels(data []byte) []color.RGBA {
 	return pixels
 }
 
-func decodeBlock(op byte, data []byte, prev *color.RGBA, seen *[64]color.RGBA) (int, []color.RGBA) {
+func decodeBlock(op byte, data []byte, prev *color.NRGBA, seen *[64]color.NRGBA) (int, []color.NRGBA) {
 	op8 := op & 0b11111111 // 8bit tag
 	op2 := op & 0b11000000 // 2bit tag
 
 	if op8 == QoiOpRgb {
-		return 4, []color.RGBA{{
+		return 4, []color.NRGBA{{
 			R: data[1],
 			G: data[2],
 			B: data[3],
 			A: 255,
 		}}
 	} else if op8 == QoiOpRgba {
-		return 5, []color.RGBA{{
+		return 5, []color.NRGBA{{
 			R: data[1],
 			G: data[2],
 			B: data[3],
@@ -125,30 +131,30 @@ func decodeBlock(op byte, data []byte, prev *color.RGBA, seen *[64]color.RGBA) (
 		}}
 	} else if op2 == QoiOpIndex {
 		pixelIndex := data[0] & 0b00111111
-		return 1, []color.RGBA{seen[pixelIndex]}
+		return 1, []color.NRGBA{seen[pixelIndex]}
 	} else if op2 == QoiOpDiff {
-		dr := uint((data[0]&0b00110000)>>4) - 2
-		dg := uint((data[0]&0b00001100)>>2) - 2
-		db := uint((data[0]&0b00000011)>>0) - 2
-		return 1, []color.RGBA{{
-			R: byte((uint(prev.R) + dr + 255) % 255),
-			G: byte((uint(prev.G) + dg + 255) % 255),
-			B: byte((uint(prev.B) + db + 255) % 255),
+		dr := int((data[0]&0b00110000)>>4) - 2
+		dg := int((data[0]&0b00001100)>>2) - 2
+		db := int((data[0]&0b00000011)>>0) - 2
+		return 1, []color.NRGBA{{
+			R: uint8((int(prev.R) + dr) % 255),
+			G: uint8((int(prev.G) + dg) % 255),
+			B: uint8((int(prev.B) + db) % 255),
 			A: prev.A,
 		}}
 	} else if op2 == QoiOpLuma {
-		dg := uint((data[0]&0b00111111)>>0) - 32
-		dr := uint((data[1]&0b11110000)>>4) - 8 + dg
-		db := uint((data[1]&0b00001111)>>0) - 8 + dg
-		return 2, []color.RGBA{{
-			R: byte((uint(prev.R) + dr + 255) % 255),
-			G: byte((uint(prev.G) + dg + 255) % 255),
-			B: byte((uint(prev.B) + db + 255) % 255),
+		dg := int((data[0]&0b00111111)>>0) - 32
+		dr := int((data[1]&0b11110000)>>4) - 8 + dg
+		db := int((data[1]&0b00001111)>>0) - 8 + dg
+		return 2, []color.NRGBA{{
+			R: uint8((int(prev.R) + dr) % 255),
+			G: uint8((int(prev.G) + dg) % 255),
+			B: uint8((int(prev.B) + db) % 255),
 			A: prev.A,
 		}}
-	} else if op2 == QoiOpRun {
-		rep := uint(data[0]&0b00111111) + 1
-		pixels := make([]color.RGBA, rep)
+	} else if op2 == QoiOpRun { // is ok
+		rep := int(data[0]&0b00111111) + 1
+		pixels := make([]color.NRGBA, rep)
 		for i := range pixels {
 			pixels[i] = *prev
 		}
@@ -156,9 +162,9 @@ func decodeBlock(op byte, data []byte, prev *color.RGBA, seen *[64]color.RGBA) (
 	}
 
 	log.Fatal("unknown op code")
-	return 1, []color.RGBA{}
+	return 1, []color.NRGBA{}
 }
 
-func genIndex(pixel color.RGBA) uint8 {
-	return (pixel.R*3 + pixel.G*5 + pixel.B*7 + pixel.A*11) % 64
+func genIndex(pixel color.NRGBA) int {
+	return (int(pixel.R)*3 + int(pixel.G)*5 + int(pixel.B)*7 + int(pixel.A)*11) % 64
 }
