@@ -10,15 +10,7 @@ import (
 	"os"
 )
 
-var original *image.Image
-
 func main() {
-	// get original file for debugging
-	oFile, _ := os.Open("./tmp/dice.png")
-	oImg, _ := png.Decode(oFile)
-	original = &oImg
-
-	// actual decoding
 	name := "./tmp/dice.qoi"
 	file := DecodeFile(name)
 	fmt.Printf("read file %+v\n", file.Header)
@@ -66,18 +58,6 @@ func DecodeFile(name string) QuiteOkFile {
 	}
 }
 
-func DecodeHeaderFile(file *os.File) QuiteOkHeader {
-	var header QuiteOkHeader
-	err := binary.Read(file, binary.LittleEndian, &header)
-	if err != nil {
-		log.Fatal("read file error: ", err)
-	}
-	if header.Magic != [4]byte{113, 111, 105, 102} {
-		log.Fatal("invalid file format: ", "magic invalid")
-	}
-	return header
-}
-
 func DecodeHeader(data []byte) QuiteOkHeader {
 	return QuiteOkHeader{
 		Magic:      *(*[4]byte)(data[0:4]),
@@ -106,8 +86,6 @@ func DecodePixels(data []byte) []color.NRGBA {
 		cursor += delta
 	}
 
-	log.Print("last bits ", data[cursor:])
-
 	return pixels
 }
 
@@ -120,7 +98,7 @@ func decodeBlock(op byte, data []byte, prev *color.NRGBA, seen *[64]color.NRGBA)
 			R: data[1],
 			G: data[2],
 			B: data[3],
-			A: 255,
+			A: prev.A,
 		}}
 	} else if op8 == QoiOpRgba {
 		return 5, []color.NRGBA{{
@@ -137,9 +115,9 @@ func decodeBlock(op byte, data []byte, prev *color.NRGBA, seen *[64]color.NRGBA)
 		dg := int((data[0]&0b00001100)>>2) - 2
 		db := int((data[0]&0b00000011)>>0) - 2
 		return 1, []color.NRGBA{{
-			R: uint8((int(prev.R) + dr) % 255),
-			G: uint8((int(prev.G) + dg) % 255),
-			B: uint8((int(prev.B) + db) % 255),
+			R: uint8((int(prev.R) + dr) % 256),
+			G: uint8((int(prev.G) + dg) % 256),
+			B: uint8((int(prev.B) + db) % 256),
 			A: prev.A,
 		}}
 	} else if op2 == QoiOpLuma {
@@ -147,9 +125,9 @@ func decodeBlock(op byte, data []byte, prev *color.NRGBA, seen *[64]color.NRGBA)
 		dr := int((data[1]&0b11110000)>>4) - 8 + dg
 		db := int((data[1]&0b00001111)>>0) - 8 + dg
 		return 2, []color.NRGBA{{
-			R: uint8((int(prev.R) + dr) % 255),
-			G: uint8((int(prev.G) + dg) % 255),
-			B: uint8((int(prev.B) + db) % 255),
+			R: uint8((int(prev.R) + dr) % 256),
+			G: uint8((int(prev.G) + dg) % 256),
+			B: uint8((int(prev.B) + db) % 256),
 			A: prev.A,
 		}}
 	} else if op2 == QoiOpRun { // is ok
@@ -161,7 +139,7 @@ func decodeBlock(op byte, data []byte, prev *color.NRGBA, seen *[64]color.NRGBA)
 		return 1, pixels
 	}
 
-	log.Fatal("unknown op code")
+	log.Fatal("unknown op code: ", op)
 	return 1, []color.NRGBA{}
 }
 
