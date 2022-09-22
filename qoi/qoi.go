@@ -191,3 +191,70 @@ func decodePixels(data []byte, pixels *[]color.NRGBA) error {
 
 	return nil
 }
+
+func Encode(writer io.Writer, image image.Image) error {
+	// prerequisite
+	cursor := 0 // cursor in data slice
+	index := 0  // pixel index in image
+	prev := color.NRGBA{A: 255}
+	seen := [64]color.NRGBA{}
+	var data []byte
+
+	// TODO offsets? image.Bounds().Min.Y
+	var curr color.NRGBA
+	xy := func(i int) (int, int) {
+		x := index % image.Bounds().Dx()
+		y := index / image.Bounds().Dy()
+		return x, y
+	}
+
+	// read pixels
+	size := image.Bounds().Dx() * image.Bounds().Dy()
+	for ; index < size; index++ {
+		x, y := xy(index)
+		curr = color.NRGBAModel.Convert(image.At(x, y)).(color.NRGBA)
+
+		dg := int(curr.G) - int(prev.G)
+		dr := int(curr.R) - int(prev.R)
+		db := int(curr.B) - int(prev.B)
+
+		if prev == curr { // OpRun
+			run := index
+			for ; prev == curr && (index-run) < 62; index++ {
+				x, y = xy(index)
+				curr = color.NRGBAModel.Convert(image.At(x, y)).(color.NRGBA)
+			}
+			data[cursor] = OpRun | byte(run)
+			cursor += 1
+			index -= 1
+		} else if (dg < 31 && dg > -32) && (dr < 7 && dr > -8) && (db < 7 && db > -8) { // OpLuma
+			data[cursor] = OpLuma | byte(dg+32)
+			data[cursor] = byte((dr-dg+8)<<4) | byte(db-dg+8)
+			seen[genIndex(curr)] = curr
+			prev = curr
+			cursor += 2
+		}
+		// TODO add others:
+		// OpRgb
+		// OpRgba
+		// OpIndex
+		// OpDiff
+	}
+
+	// write header
+	// TODO implement me!
+
+	// write pixels
+	// TODO implement me!
+
+	return nil
+}
+
+// utility
+
+func abs(x int) int {
+	if x < 0 {
+		return -x
+	}
+	return x
+}
