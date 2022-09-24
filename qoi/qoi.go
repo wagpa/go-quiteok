@@ -11,15 +11,15 @@ import (
 // image definition
 
 type QuiteOkImage struct {
-	Header QuiteOkHeader
-	Pixels []color.NRGBA
+	header QuiteOkHeader
+	pixels []color.NRGBA
 }
 
 type QuiteOkHeader struct {
-	Width      uint32
-	Height     uint32
-	Channels   uint8
-	Colorspace uint8
+	width      uint32
+	height     uint32
+	channels   uint8
+	colorspace uint8
 }
 
 func (img QuiteOkImage) ColorModel() color.Model {
@@ -30,14 +30,14 @@ func (img QuiteOkImage) Bounds() image.Rectangle {
 	return image.Rectangle{
 		Min: image.Point{},
 		Max: image.Point{
-			X: int(img.Header.Width),
-			Y: int(img.Header.Height),
+			X: int(img.header.width),
+			Y: int(img.header.height),
 		},
 	}
 }
 
 func (img QuiteOkImage) At(x, y int) color.Color {
-	return img.Pixels[x+y*int(img.Header.Width)]
+	return img.pixels[x+y*int(img.header.width)]
 }
 
 // decoding
@@ -67,23 +67,23 @@ func Decode(reader io.Reader) (QuiteOkImage, error) {
 	}
 
 	var header QuiteOkHeader
-	if err := DecodeHeader(data[:14], &header); err != nil {
+	if err := decodeHeader(data[:14], &header); err != nil {
 		return QuiteOkImage{}, err
 	}
 
-	size := uint64(header.Width) * uint64(header.Height)
+	size := uint64(header.width) * uint64(header.height)
 	pixels := make([]color.NRGBA, size)
-	if err := DecodePixels(data[14:], &pixels); err != nil {
+	if err := decodePixels(data[14:], &pixels); err != nil {
 		return QuiteOkImage{}, err
 	}
 
 	return QuiteOkImage{
-		Header: header,
-		Pixels: pixels,
+		header: header,
+		pixels: pixels,
 	}, nil
 }
 
-func DecodeHeader(data []byte, header *QuiteOkHeader) error {
+func decodeHeader(data []byte, header *QuiteOkHeader) error {
 	if len(data) != 14 {
 		return errors.New("invalid header size")
 	}
@@ -94,15 +94,15 @@ func DecodeHeader(data []byte, header *QuiteOkHeader) error {
 	}
 
 	*header = QuiteOkHeader{
-		Width:      binary.BigEndian.Uint32(data[4:8]),
-		Height:     binary.BigEndian.Uint32(data[8:12]),
-		Channels:   data[12],
-		Colorspace: data[13],
+		width:      binary.BigEndian.Uint32(data[4:8]),
+		height:     binary.BigEndian.Uint32(data[8:12]),
+		channels:   data[12],
+		colorspace: data[13],
 	}
 	return nil
 }
 
-func DecodePixels(data []byte, pixels *[]color.NRGBA) error {
+func decodePixels(data []byte, pixels *[]color.NRGBA) error {
 	// prerequisite
 	dataIndex := 0  // pixelIndex in data slice (input)
 	pixelIndex := 0 // pixelIndex in pixel slice (output)
