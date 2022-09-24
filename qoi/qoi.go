@@ -249,7 +249,7 @@ func Encode(writer io.Writer, image image.Image) error {
 		x, y := xy(index)
 		curr = color.NRGBAModel.Convert(image.At(x, y)).(color.NRGBA)
 
-		// OpRun
+		// OpRun TODO prob. doesn't work
 		if prev == curr {
 			run := 0
 			for {
@@ -270,6 +270,17 @@ func Encode(writer io.Writer, image image.Image) error {
 				OpRun|byte(run-1),
 			)
 			index += run
+			continue
+		}
+
+		// OpIndex
+		if key := genIndex(curr); seen[key] == curr {
+			data = append(
+				data,
+				OpIndex|byte(key),
+			)
+			prev = curr
+			index += 1
 			continue
 		}
 
@@ -297,17 +308,6 @@ func Encode(writer io.Writer, image image.Image) error {
 				OpDiff|byte(dr+2<<4)|byte(dg+2<<2)|byte(db+2<<0),
 			)
 			seen[genIndex(curr)] = curr
-			prev = curr
-			index += 1
-			continue
-		}
-
-		// OpDiff
-		if key := genIndex(curr); seen[key] == curr {
-			data = append(
-				data,
-				OpIndex|byte(key),
-			)
 			prev = curr
 			index += 1
 			continue
