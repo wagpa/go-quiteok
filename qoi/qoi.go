@@ -5,17 +5,14 @@ import (
 	"errors"
 	"image"
 	"image/color"
-	"image/png"
 	"io"
-	"log"
-	"os"
 )
 
 // image definition
 
 type QuiteOkImage struct {
-	header QuiteOkHeader
-	pixels []color.NRGBA
+	Header QuiteOkHeader
+	Pixels []color.NRGBA
 }
 
 type QuiteOkHeader struct {
@@ -26,7 +23,6 @@ type QuiteOkHeader struct {
 }
 
 func (img QuiteOkImage) ColorModel() color.Model {
-	// TODO implement me!
 	return color.NRGBAModel
 }
 
@@ -34,14 +30,14 @@ func (img QuiteOkImage) Bounds() image.Rectangle {
 	return image.Rectangle{
 		Min: image.Point{},
 		Max: image.Point{
-			X: int(img.header.Width),
-			Y: int(img.header.Height),
+			X: int(img.Header.Width),
+			Y: int(img.Header.Height),
 		},
 	}
 }
 
 func (img QuiteOkImage) At(x, y int) color.Color {
-	return img.pixels[x+y*int(img.header.Width)]
+	return img.Pixels[x+y*int(img.Header.Width)]
 }
 
 // decoding
@@ -64,45 +60,30 @@ func genIndex(pixel color.NRGBA) int {
 	return (int(pixel.R)*3 + int(pixel.G)*5 + int(pixel.B)*7 + int(pixel.A)*11) % 64
 }
 
-var original image.Image
-
 func Decode(reader io.Reader) (QuiteOkImage, error) {
 	data, readErr := io.ReadAll(reader)
 	if readErr != nil {
 		return QuiteOkImage{}, readErr
 	}
 
-	{ // TODO remove after debugging
-		originalFile, originalOpenErr := os.Open("./tmp/dice.png")
-		if originalOpenErr != nil {
-			log.Fatalln(originalOpenErr)
-		}
-
-		originalImg, originalDecodeErr := png.Decode(originalFile)
-		if originalDecodeErr != nil {
-			log.Fatalln(originalDecodeErr)
-		}
-		original = originalImg
-	}
-
 	var header QuiteOkHeader
-	if err := decodeHeader(data[:14], &header); err != nil {
+	if err := DecodeHeader(data[:14], &header); err != nil {
 		return QuiteOkImage{}, err
 	}
 
 	size := uint64(header.Width) * uint64(header.Height)
 	pixels := make([]color.NRGBA, size)
-	if err := decodePixels(data[14:], &pixels); err != nil {
+	if err := DecodePixels(data[14:], &pixels); err != nil {
 		return QuiteOkImage{}, err
 	}
 
 	return QuiteOkImage{
-		header: header,
-		pixels: pixels,
+		Header: header,
+		Pixels: pixels,
 	}, nil
 }
 
-func decodeHeader(data []byte, header *QuiteOkHeader) error {
+func DecodeHeader(data []byte, header *QuiteOkHeader) error {
 	if len(data) != 14 {
 		return errors.New("invalid header size")
 	}
@@ -121,115 +102,126 @@ func decodeHeader(data []byte, header *QuiteOkHeader) error {
 	return nil
 }
 
-func decodePixels(data []byte, pixels *[]color.NRGBA) error {
+func DecodePixels(data []byte, pixels *[]color.NRGBA) error {
 	// prerequisite
-	cursor := 0
-	index := 0
-	prev := color.NRGBA{A: 255}
+	dataIndex := 0  // pixelIndex in data slice (input)
+	pixelIndex := 0 // pixelIndex in pixel slice (output)
+	pixel := color.NRGBA{A: 255}
 	seen := [64]color.NRGBA{}
 
 	// read pixels
-	for cursor < len(data)-8 {
-		op8 := data[cursor] & 0b11111111 // 8bit tag
-		op2 := data[cursor] & 0b11000000 // 2bit tag
+	for dataIndex < len(data)-8 {
 
-		prevCursor := cursor
-		prevIndex := index
-
-		op := "None" // TODO remove after testing
+		op8 := data[dataIndex] & 0b11111111 // 8bit tag
 
 		if op8 == OpRgb {
-			prev = color.NRGBA{
-				R: data[cursor+1],
-				G: data[cursor+2],
-				B: data[cursor+3],
-				A: prev.A,
+			pixel = color.NRGBA{
+				R: data[dataIndex+1],
+				G: data[dataIndex+2],
+				B: data[dataIndex+3],
+				A: pixel.A,
 			}
-			(*pixels)[index] = prev
-			seen[genIndex(prev)] = prev
-			index += 1
-			cursor += 4
-			op = "OpRgb"
-		} else if op8 == OpRgba {
-			prev = color.NRGBA{
-				R: data[cursor+1],
-				G: data[cursor+2],
-				B: data[cursor+3],
-				A: data[cursor+4],
-			}
-			(*pixels)[index] = prev
-			seen[genIndex(prev)] = prev
-			index += 1
-			cursor += 5
-			op = "OpRgba"
-		} else if op2 == OpIndex {
-			pixelIndex := data[cursor] & 0b00111111
-			prev = seen[pixelIndex]
-			(*pixels)[index] = prev
-			seen[genIndex(prev)] = prev
-			index += 1
-			cursor += 1
-			op = "OpIndex"
-		} else if op2 == OpDiff {
-			dr := int((data[cursor]&0b00110000)>>4) - 2
-			dg := int((data[cursor]&0b00001100)>>2) - 2
-			db := int((data[cursor]&0b00000011)>>0) - 2
-			prev = color.NRGBA{
-				R: uint8((int(prev.R) + dr) % 256),
-				G: uint8((int(prev.G) + dg) % 256),
-				B: uint8((int(prev.B) + db) % 256),
-				A: prev.A,
-			}
-			(*pixels)[index] = prev
-			seen[genIndex(prev)] = prev
-			index += 1
-			cursor += 1
-			op = "OpDiff"
-		} else if op2 == OpLuma {
-			dg := int((data[cursor]&0b00111111)>>0) - 32
-			dr := int((data[cursor+1]&0b11110000)>>4) - 8 + dg
-			db := int((data[cursor+1]&0b00001111)>>0) - 8 + dg
-			prev = color.NRGBA{
-				R: uint8((int(prev.R) + dr) % 256),
-				G: uint8((int(prev.G) + dg) % 256),
-				B: uint8((int(prev.B) + db) % 256),
-				A: prev.A,
-			}
-			(*pixels)[index] = prev
-			seen[genIndex(prev)] = prev
-			index += 1
-			cursor += 2
-			op = "OpLuma"
-		} else if op2 == OpRun {
-			rep := int(data[cursor]&0b00111111) + 1
-			for i := 0; i < rep; i++ {
-				(*pixels)[index+i] = prev
-			}
-			index += rep
-			cursor += 1
-			op = "OpRun"
-		} else {
-			return errors.New("unknown op code")
+
+			(*pixels)[pixelIndex] = pixel
+			seen[genIndex(pixel)] = pixel
+			pixelIndex += 1
+			dataIndex += 4
+			continue
 		}
 
-		log.Println("read data", data[prevCursor:cursor], "to", prev, "op", op, " added ", index-prevIndex)
-		{
-			x := prevIndex % original.Bounds().Dx()
-			y := prevIndex / original.Bounds().Dy()
-			p := original.At(x, y)
-			if prev != p {
-				log.Fatal("different pixels at ", x, y, " expected ", p, " actual ", prev, " from data ", data[prevCursor:cursor], " nrgba ", prev.R, prev.G, prev.B, prev.A)
+		if op8 == OpRgba {
+			pixel = color.NRGBA{
+				R: data[dataIndex+1],
+				G: data[dataIndex+2],
+				B: data[dataIndex+3],
+				A: data[dataIndex+4],
 			}
+
+			(*pixels)[pixelIndex] = pixel
+			seen[genIndex(pixel)] = pixel
+			pixelIndex += 1
+			dataIndex += 5
+			continue
 		}
+
+		op2 := data[dataIndex] & 0b11000000 // 2bit tag
+
+		if op2 == OpIndex {
+			index := data[dataIndex] & 0b00111111
+			pixel = seen[index]
+
+			(*pixels)[pixelIndex] = pixel
+			pixelIndex += 1
+			dataIndex += 1
+			continue
+		}
+
+		if op2 == OpDiff {
+			dr := int((data[dataIndex]&0b00110000)>>4) - 2
+			dg := int((data[dataIndex]&0b00001100)>>2) - 2
+			db := int((data[dataIndex]&0b00000011)>>0) - 2
+			pixel = color.NRGBA{
+				R: uint8((int(pixel.R) + dr) % 256),
+				G: uint8((int(pixel.G) + dg) % 256),
+				B: uint8((int(pixel.B) + db) % 256),
+				A: pixel.A,
+			}
+
+			(*pixels)[pixelIndex] = pixel
+			seen[genIndex(pixel)] = pixel
+			pixelIndex += 1
+			dataIndex += 1
+			continue
+		}
+
+		if op2 == OpLuma {
+			dg := int((data[dataIndex+0]&0b00111111)>>0) - 32
+			dr := int((data[dataIndex+1]&0b11110000)>>4) - 8 + dg
+			db := int((data[dataIndex+1]&0b00001111)>>0) - 8 + dg
+			pixel = color.NRGBA{
+				R: uint8((int(pixel.R) + dr) % 256),
+				G: uint8((int(pixel.G) + dg) % 256),
+				B: uint8((int(pixel.B) + db) % 256),
+				A: pixel.A,
+			}
+
+			(*pixels)[pixelIndex] = pixel
+			seen[genIndex(pixel)] = pixel
+			pixelIndex += 1
+			dataIndex += 2
+			continue
+		}
+
+		if op2 == OpRun {
+			rep := int(data[dataIndex]&0b00111111) + 1
+			if rep > 62 || rep < 1 {
+				return errors.New("run length out of bounds")
+			}
+			for i := 0; i < rep; i++ {
+				(*pixels)[pixelIndex+i] = pixel
+			}
+
+			pixelIndex += rep
+			dataIndex += 1
+			continue
+		}
+
+		return errors.New("unknown op code")
 	}
 
 	// validate file end sequence
-	if len(data[cursor:]) != 8 || *(*[8]byte)(data[cursor:]) != eof {
+	if len(data[dataIndex:]) != 8 || *(*[8]byte)(data[dataIndex:]) != eof {
 		return errors.New("invalid eof")
+	}
+
+	if pixelIndex != cap(*pixels) {
+		return errors.New("invalid number of pixels decoded")
 	}
 
 	return nil
 }
+
+// Encode --------------------------------
 
 func Encode(writer io.Writer, image image.Image) error {
 	// prerequisite
@@ -342,13 +334,4 @@ func Encode(writer io.Writer, image image.Image) error {
 		return err
 	}
 	return nil
-}
-
-// utility
-
-func abs(x int) int {
-	if x < 0 {
-		return -x
-	}
-	return x
 }
