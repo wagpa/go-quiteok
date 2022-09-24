@@ -3,9 +3,11 @@ package qoi
 import (
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"image"
 	"image/color"
 	"io"
+	"log"
 )
 
 // image definition
@@ -70,6 +72,7 @@ func Decode(reader io.Reader) (QuiteOkImage, error) {
 	if err := decodeHeader(data[:14], &header); err != nil {
 		return QuiteOkImage{}, err
 	}
+	fmt.Printf("decoded header %+v\n", header)
 
 	size := uint64(header.width) * uint64(header.height)
 	pixels := make([]color.NRGBA, size)
@@ -90,6 +93,7 @@ func decodeHeader(data []byte, header *QuiteOkHeader) error {
 
 	magic := string(data[0:4])
 	if magic != Magic {
+		log.Println("got magic", magic)
 		return errors.New("invalid header magic")
 	}
 
@@ -215,6 +219,7 @@ func decodePixels(data []byte, pixels *[]color.NRGBA) error {
 	}
 
 	if pixelIndex != cap(*pixels) {
+		log.Println("pixels: expected", cap(*pixels), "actual", pixelIndex)
 		return errors.New("invalid number of pixels decoded")
 	}
 
@@ -225,8 +230,7 @@ func decodePixels(data []byte, pixels *[]color.NRGBA) error {
 
 func Encode(writer io.Writer, image image.Image) error {
 	// prerequisite
-	cursor := 0 // cursor in data slice
-	index := 0  // pixel index in image
+	index := 0 // pixel index in image
 	prev := color.NRGBA{A: 255}
 	seen := [64]color.NRGBA{}
 	var data []byte
@@ -247,13 +251,25 @@ func Encode(writer io.Writer, image image.Image) error {
 
 		// OpRun
 		if prev == curr {
-			run := index
-			for ; prev == curr && (index-run) < 62; index++ {
-				x, y = xy(index)
-				curr = color.NRGBAModel.Convert(image.At(x, y)).(color.NRGBA)
+			run := 0
+			for {
+				if index+run+1 >= size {
+					break
+				}
+
+				x, y = xy(index + run + 1)
+				if run > 62 || color.NRGBAModel.Convert(image.At(x, y)).(color.NRGBA) != prev {
+					break
+				}
+				run++
 			}
-			data[cursor] = OpRun | byte(run)
-			cursor += 1
+			run += 1 // add curr to count
+
+			data = append(
+				data,
+				OpRun|byte(run-1),
+			)
+			index += run
 			continue
 		}
 
@@ -263,73 +279,100 @@ func Encode(writer io.Writer, image image.Image) error {
 
 		// OpLuma
 		if (dg < 31 && dg > -32) && (dr < 7 && dr > -8) && (db < 7 && db > -8) {
-			data[cursor] = OpLuma | byte(dg+32)
-			data[cursor] = byte((dr-dg+8)<<4) | byte(db-dg+8)
+			data = append(
+				data,
+				OpLuma|byte(dg+32),
+				byte((dr-dg+8)<<4)|byte(db-dg+8),
+			)
 			seen[genIndex(curr)] = curr
 			prev = curr
-			cursor += 2
 			index += 1
 			continue
 		}
 
 		// OpDiff
 		if (dr < 1 && dr > -2) && (dg < 1 && dg > -2) && (db < 1 && db > -2) {
-			data[cursor] = OpDiff | byte(dr+2<<4) | byte(dg+2<<2) | byte(db+2<<0)
+			data = append(
+				data,
+				OpDiff|byte(dr+2<<4)|byte(dg+2<<2)|byte(db+2<<0),
+			)
 			seen[genIndex(curr)] = curr
 			prev = curr
-			cursor += 1
 			index += 1
 			continue
 		}
 
 		// OpDiff
 		if key := genIndex(curr); seen[key] == curr {
-			data[cursor] = OpIndex | byte(key)
+			data = append(
+				data,
+				OpIndex|byte(key),
+			)
 			prev = curr
-			cursor += 1
 			index += 1
 			continue
 		}
 
 		// OpRgb
 		if prev.A == curr.A {
-			data[cursor] = OpRgb
-			data[cursor+1] = curr.R
-			data[cursor+2] = curr.G
-			data[cursor+3] = curr.B
+			data = append(
+				data,
+				OpRgb,
+				curr.R,
+				curr.G,
+				curr.B,
+			)
 			prev = curr
-			cursor += 4
 			index += 1
 			continue
 		}
 
 		// OpRgba
 		if true {
-			data[cursor] = OpRgba
-			data[cursor+1] = curr.R
-			data[cursor+2] = curr.G
-			data[cursor+3] = curr.B
-			data[cursor+4] = curr.A
+			data = append(
+				data,
+				OpRgba,
+				curr.R,
+				curr.G,
+				curr.B,
+				curr.A,
+			)
 			prev = curr
-			cursor += 5
 			index += 1
 			continue
 		}
 	}
 
-	// generate header
-	header := make([]byte, 14)
-	header = append(header, Magic...)
-	binary.BigEndian.AppendUint32(header, uint32(image.Bounds().Dx()))
-	binary.BigEndian.AppendUint32(header, uint32(image.Bounds().Dy()))
-	header = append(
-		header,
-		uint8(4), // TODO get actual #channels
-		uint8(0), // TODO get actual colorspace
+	// create file bytes
+	var file []byte
+
+	// add magic
+	file = append(
+		file,
+		Magic...,
+	)
+	// add size
+	file = binary.BigEndian.AppendUint32(file, uint32(image.Bounds().Dx()))
+	file = binary.BigEndian.AppendUint32(file, uint32(image.Bounds().Dy()))
+	// add format
+	file = append(
+		file,
+		uint8(4),
+		uint8(0),
+	)
+	log.Println("encoded header to", file)
+	// add pixels
+	file = append(
+		file,
+		data...,
+	)
+	// add eof indicator
+	file = append(
+		file,
+		eof[:]...,
 	)
 
-	// write file
-	file := append(header, data...)
+	// write to file
 	if _, err := writer.Write(file); err != nil {
 		return err
 	}
