@@ -7,8 +7,10 @@ import (
 )
 
 func main() {
-	//fileName := "./tmp/kodim10"
-	fileName := "./tmp/dice"
+	fileName := "./tmp/kodim10"
+	//fileName := "./tmp/dice"
+	//fileName := "./tmp/test"
+	//fileName := "./tmp/test_2"
 
 	// png -> qoi
 	if true {
