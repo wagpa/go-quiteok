@@ -234,13 +234,30 @@ type Op struct {
 	run int
 }
 
+func modDist(a int, b int, m int) int {
+	// make sure, that a <= b
+	v := 1
+	if a > b {
+		b, a = a, b
+		v = -1
+	}
+
+	ab := b - a
+	ba := (a + m) - b
+
+	if ab < ba {
+		return v * ab
+	} else {
+		return v * -1 * ba
+	}
+}
+
 func Encode(writer io.Writer, image image.Image) error {
 	// prerequisite
 	index := 0 // pixel index in image
 	prev := color.NRGBA{A: 255}
 	seen := [64]color.NRGBA{}
 	var data []byte
-	var ops []Op
 
 	// TODO offsets? image.Bounds().Min.Y
 	var curr color.NRGBA
@@ -259,15 +276,14 @@ func Encode(writer io.Writer, image image.Image) error {
 		// OpRun
 		if prev == curr {
 			run := 1
-			for ; run < 63; run++ {
+			for run < 62 && run+index < size {
 				nx, ny := xy(index + run)
 				next := color.NRGBAModel.Convert(image.At(nx, ny)).(color.NRGBA)
-				if run+index >= size-1 || next != prev {
-					run++
+				if next != prev {
 					break
 				}
+				run++
 			}
-			run -= 1
 
 			data = append(
 				data,
@@ -275,14 +291,6 @@ func Encode(writer io.Writer, image image.Image) error {
 			)
 			seen[hashColor(curr)] = curr
 			index += run
-
-			if data[len(data)-1]&0b11000000 != OpRun {
-				panic("invalid encode")
-			}
-			ops = append(
-				ops,
-				Op{"OpRun", run},
-			)
 
 			continue
 		}
@@ -296,38 +304,44 @@ func Encode(writer io.Writer, image image.Image) error {
 			prev = curr
 			index += 1
 
-			if data[len(data)-1]&0b11000000 != OpIndex {
-				panic("invalid encode")
-			}
-			ops = append(
-				ops,
-				Op{"OpIndex", 1},
-			)
-
 			continue
 		}
 
-		dg := int(curr.G) - int(prev.G)
-		dr := int(curr.R) - int(prev.R)
-		db := int(curr.B) - int(prev.B)
-
-		// OpDiff
-		if (dr < 1 && dr > -2) && (dg < 1 && dg > -2) && (db < 1 && db > -2) {
+		// OpRgba
+		if prev.A != curr.A {
 			data = append(
 				data,
-				OpDiff|byte(dr+2<<4)|byte(dg+2<<2)|byte(db+2<<0),
+				OpRgba,
+				curr.R,
+				curr.G,
+				curr.B,
+				curr.A,
 			)
 			seen[hashColor(curr)] = curr
 			prev = curr
 			index += 1
 
-			if data[len(data)-1]&0b11000000 != OpDiff {
-				panic("invalid encode")
-			}
-			ops = append(
-				ops,
-				Op{"OpDiff", 1},
+			continue
+		}
+
+		// alpha channel is the same
+
+		dg := modDist(int(prev.G), int(curr.G), 256)
+		dr := modDist(int(prev.R), int(curr.R), 256)
+		db := modDist(int(prev.B), int(curr.B), 256)
+
+		// OpDiff
+		if (-2 <= dr && dr <= 1) && (-2 <= dg && dg <= 1) && (-2 <= db && db <= 1) {
+			data = append(
+				data,
+				OpDiff|
+					byte((dr+2)<<4)|
+					byte((dg+2)<<2)|
+					byte((db+2)<<0),
 			)
+			seen[hashColor(curr)] = curr
+			prev = curr
+			index += 1
 
 			continue
 		}
@@ -336,7 +350,7 @@ func Encode(writer io.Writer, image image.Image) error {
 		dbDg := db - dg
 
 		// OpLuma
-		if (dg < 31 && dg > -32) && (drDg < 7 && drDg > -8) && (dbDg < 7 && dbDg > -8) {
+		if (-32 <= dg && dg <= 31) && (-8 <= drDg && drDg <= 7) && (-8 <= dbDg && dbDg <= 7) {
 			data = append(
 				data,
 				OpLuma|byte(dg+32),
@@ -346,19 +360,11 @@ func Encode(writer io.Writer, image image.Image) error {
 			prev = curr
 			index += 1
 
-			if data[len(data)-2]&0b11000000 != OpLuma {
-				panic("invalid encode")
-			}
-			ops = append(
-				ops,
-				Op{"OpLuma", 1},
-			)
-
 			continue
 		}
 
 		// OpRgb
-		if prev.A == curr.A {
+		if true {
 			data = append(
 				data,
 				OpRgb,
@@ -366,53 +372,13 @@ func Encode(writer io.Writer, image image.Image) error {
 				curr.G,
 				curr.B,
 			)
+			seen[hashColor(curr)] = curr
 			prev = curr
 			index += 1
-
-			if data[len(data)-4] != OpRgb {
-				panic("invalid encode")
-			}
-			ops = append(
-				ops,
-				Op{"OpRgb", 1},
-			)
-
-			continue
-		}
-
-		// OpRgba
-		if true {
-			data = append(
-				data,
-				OpRgba,
-				curr.R,
-				curr.G,
-				curr.B,
-				curr.A,
-			)
-			prev = curr
-			index += 1
-
-			if data[len(data)-5] != OpRgba {
-				panic("invalid encode")
-			}
-			ops = append(
-				ops,
-				Op{"OpRgba", 1},
-			)
 
 			continue
 		}
 	}
-
-	/*
-		fmt.Println("Ops")
-		runs := 0
-		for _, op := range ops {
-			runs += op.run
-			fmt.Printf("i: %3d | x: %3d | y: %3d | op: %+v\n", runs, runs%20, runs/20, op)
-		}
-	*/
 
 	// create file bytes
 	var file []byte
@@ -431,7 +397,6 @@ func Encode(writer io.Writer, image image.Image) error {
 		uint8(4),
 		uint8(0),
 	)
-	// TODO header is ok!
 	// add pixels
 	file = append(
 		file,
@@ -442,21 +407,6 @@ func Encode(writer io.Writer, image image.Image) error {
 		file,
 		eof[:]...,
 	)
-
-	if false { // debugging
-		decoded := make([]color.NRGBA, size)
-		if err := decodePixels(file[14:], &decoded); err != nil { // TODO cannot decode!!!
-			panic(err)
-		}
-		for i, actual := range decoded {
-			x := i % image.Bounds().Max.X
-			y := i / image.Bounds().Max.Y
-			expected := color.NRGBAModel.Convert(image.At(x, y)).(color.NRGBA)
-			if actual != expected {
-				log.Fatalln("invalid pixel decoded", expected, actual)
-			}
-		}
-	}
 
 	// write to file
 	if _, err := writer.Write(file); err != nil {
