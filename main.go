@@ -1,56 +1,85 @@
 package main
 
 import (
+	"errors"
+	"flag"
+	"fmt"
 	"go_quiteok/qoi"
+	"image"
 	"image/png"
 	"os"
+	"path/filepath"
 )
 
-func main() {
-	fileName := "./tmp/kodim10"
-	//fileName := "./tmp/dice"
-	//fileName := "./tmp/test"
-	//fileName := "./tmp/test_2"
+type parameters struct {
+	inPath  string
+	outPath string
+	decode  bool
+}
 
-	// png -> qoi
-	if true {
-		reader, oErr := os.Open(fileName + ".png")
-		if oErr != nil {
-			panic(oErr)
-		}
-		decoded, dErr := png.Decode(reader)
-		if dErr != nil {
-			panic(dErr)
-		}
+func getInput() (parameters, error) {
+	in := flag.String("in", "in.qoi", "the parameters file (qoi or png)")
+	out := flag.String("out", "out.png", "the output file (png or qoi)")
+	flag.Parse()
 
-		writer, ofErr := os.OpenFile(fileName+".png.qoi", os.O_CREATE|os.O_WRONLY, 0644)
-		if ofErr != nil {
-			panic(ofErr)
-		}
-		eErr := qoi.Encode(writer, decoded)
-		if eErr != nil {
-			panic(eErr)
-		}
+	code := flag.Arg(0)
+	if code != "encode" && code != "decode" {
+		fmt.Println(flag.Args())
+		return parameters{}, fmt.Errorf("supported actions are `encode` and `decode`, not %s", code)
 	}
 
-	// qoi -> png
-	if true {
-		reader, oErr := os.Open(fileName + ".png.qoi")
-		if oErr != nil {
-			panic(oErr)
-		}
-		decoded, dErr := qoi.Decode(reader)
-		if dErr != nil {
-			panic(dErr)
-		}
+	params := parameters{
+		inPath:  *in,
+		outPath: *out,
+		decode:  code == "decode",
+	}
 
-		writer, ofErr := os.OpenFile(fileName+".png.qoi.png", os.O_CREATE|os.O_WRONLY, 0644)
-		if ofErr != nil {
-			panic(ofErr)
+	if params.decode {
+		if filepath.Ext(params.inPath) != ".qoi" || filepath.Ext(params.outPath) != ".png" {
+			return parameters{}, errors.New("`decode` expects the first param to be a qoi and the second a png file")
 		}
-		eErr := png.Encode(writer, decoded)
-		if eErr != nil {
-			panic(eErr)
-		}
+	} else if filepath.Ext(params.outPath) != ".qoi" || filepath.Ext(params.inPath) != ".png" {
+		return parameters{}, fmt.Errorf("`encode` expects the first param to be a png and the second a qoi file, not %s %s", filepath.Ext(params.inPath), filepath.Ext(params.outPath))
+	}
+
+	return params, nil
+}
+
+func main() {
+
+	params, err := getInput()
+	if err != nil {
+		panic(err)
+	}
+
+	reader, oErr := os.Open(params.inPath)
+	if oErr != nil {
+		panic(oErr)
+	}
+
+	var decoded image.Image
+	var dErr error = nil
+	if params.decode {
+		decoded, dErr = qoi.Decode(reader)
+	} else {
+		decoded, dErr = png.Decode(reader)
+	}
+	if dErr != nil {
+		panic(dErr)
+	}
+
+	writer, ofErr := os.OpenFile(params.outPath, os.O_CREATE|os.O_WRONLY, 0644)
+	if ofErr != nil {
+		panic(ofErr)
+	}
+
+	var eErr error = nil
+	if params.decode {
+		eErr = png.Encode(writer, decoded)
+	} else {
+		eErr = qoi.Encode(writer, decoded)
+	}
+	if eErr != nil {
+		panic(eErr)
 	}
 }
