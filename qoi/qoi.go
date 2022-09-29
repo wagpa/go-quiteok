@@ -12,11 +12,13 @@ import (
 
 // image definition
 
+// QuiteOkImage is the image type for the QuiteOk image format. It implements the image.Image interface.
 type QuiteOkImage struct {
 	header QuiteOkHeader
 	pixels []color.NRGBA
 }
 
+// QuiteOkHeader is the header data of a QuiteOk image format. See qoi.QuiteOkImage for usage.
 type QuiteOkHeader struct {
 	width      uint32
 	height     uint32
@@ -44,7 +46,7 @@ func (img QuiteOkImage) At(x, y int) color.Color {
 
 // decoding
 
-// the op-codes used by the qoi file format
+// A List of op-codes used in the file. They specify how the bytes are encoded.
 const (
 	OpRgb   = byte(0b11111110)
 	OpRgba  = byte(0b11111111)
@@ -54,14 +56,18 @@ const (
 	OpRun   = byte(0b11000000)
 )
 
+// Magic is the magic code used for files of the QuiteOk image format.
 const Magic = "qoif"
 
+// The end of file code used by files of the QuiteOk image format.
 var eof = [...]byte{0, 0, 0, 0, 0, 0, 0, 1}
 
-func hashColor(pixel color.NRGBA) int {
+// Generates a hash from the provided color. It is a number between 0 and 63.
+func hashColor(pixel *color.NRGBA) int {
 	return (int(pixel.R)*3 + int(pixel.G)*5 + int(pixel.B)*7 + int(pixel.A)*11) % 64
 }
 
+// Decode Reads all bytes from the reader and tries to decode an image with the QuiteOk image format from it.
 func Decode(reader io.Reader) (QuiteOkImage, error) {
 	data, readErr := io.ReadAll(reader)
 	if readErr != nil {
@@ -86,6 +92,7 @@ func Decode(reader io.Reader) (QuiteOkImage, error) {
 	}, nil
 }
 
+// Reads the given bytes, decodes them and writes the decoded to the qoi.QuiteOkHeader. It expects exactly 14 bytes.
 func decodeHeader(data []byte, header *QuiteOkHeader) error {
 	if len(data) != 14 {
 		return errors.New("invalid header size")
@@ -106,6 +113,9 @@ func decodeHeader(data []byte, header *QuiteOkHeader) error {
 	return nil
 }
 
+// Reads the given bytes and decodes them to given pixels slice.
+// It expects the pixel slice to already be initialized with at least the size of the pixels to be decoded.
+// The bytes have to end with the QuiteOk image format end of file byte sequence.
 func decodePixels(data []byte, pixels *[]color.NRGBA) error {
 	// prerequisite
 	dataIndex := 0  // pixelIndex in data slice (input)
@@ -127,7 +137,7 @@ func decodePixels(data []byte, pixels *[]color.NRGBA) error {
 			}
 
 			(*pixels)[pixelIndex] = pixel
-			seen[hashColor(pixel)] = pixel
+			seen[hashColor(&pixel)] = pixel
 			pixelIndex += 1
 			dataIndex += 4
 			continue
@@ -142,7 +152,7 @@ func decodePixels(data []byte, pixels *[]color.NRGBA) error {
 			}
 
 			(*pixels)[pixelIndex] = pixel
-			seen[hashColor(pixel)] = pixel
+			seen[hashColor(&pixel)] = pixel
 			pixelIndex += 1
 			dataIndex += 5
 			continue
@@ -172,7 +182,7 @@ func decodePixels(data []byte, pixels *[]color.NRGBA) error {
 			}
 
 			(*pixels)[pixelIndex] = pixel
-			seen[hashColor(pixel)] = pixel
+			seen[hashColor(&pixel)] = pixel
 			pixelIndex += 1
 			dataIndex += 1
 			continue
@@ -190,7 +200,7 @@ func decodePixels(data []byte, pixels *[]color.NRGBA) error {
 			}
 
 			(*pixels)[pixelIndex] = pixel
-			seen[hashColor(pixel)] = pixel
+			seen[hashColor(&pixel)] = pixel
 			pixelIndex += 1
 			dataIndex += 2
 			continue
@@ -227,13 +237,12 @@ func decodePixels(data []byte, pixels *[]color.NRGBA) error {
 	return nil
 }
 
-// Encode --------------------------------
+// Encode
 
-type Op struct {
-	op  string
-	run int
-}
-
+// Calculates the (directed) distance between two numbers in a wrapped room (modulo room).
+//
+//	x := modDist(a, b, m)
+//	(a + x + m) % m == b
 func modDist(a int, b int, m int) int {
 	// make sure, that a <= b
 	v := 1
@@ -252,6 +261,7 @@ func modDist(a int, b int, m int) int {
 	}
 }
 
+// Encode encodes a given image to the QuiteOk image format and writes the encoded bytes to the writer.
 func Encode(writer io.Writer, image image.Image) error {
 	// prerequisite
 	index := 0 // pixel index in image
@@ -289,14 +299,14 @@ func Encode(writer io.Writer, image image.Image) error {
 				data,
 				OpRun|byte(run-1),
 			)
-			seen[hashColor(curr)] = curr
+			seen[hashColor(&curr)] = curr
 			index += run
 
 			continue
 		}
 
 		// OpIndex
-		if hash := hashColor(curr); seen[hash] == curr {
+		if hash := hashColor(&curr); seen[hash] == curr {
 			data = append(
 				data,
 				OpIndex|byte(hash),
@@ -317,7 +327,7 @@ func Encode(writer io.Writer, image image.Image) error {
 				curr.B,
 				curr.A,
 			)
-			seen[hashColor(curr)] = curr
+			seen[hashColor(&curr)] = curr
 			prev = curr
 			index += 1
 
@@ -339,7 +349,7 @@ func Encode(writer io.Writer, image image.Image) error {
 					byte((dg+2)<<2)|
 					byte((db+2)<<0),
 			)
-			seen[hashColor(curr)] = curr
+			seen[hashColor(&curr)] = curr
 			prev = curr
 			index += 1
 
@@ -356,7 +366,7 @@ func Encode(writer io.Writer, image image.Image) error {
 				OpLuma|byte(dg+32),
 				byte((drDg+8)<<4)|byte(dbDg+8),
 			)
-			seen[hashColor(curr)] = curr
+			seen[hashColor(&curr)] = curr
 			prev = curr
 			index += 1
 
@@ -372,7 +382,7 @@ func Encode(writer io.Writer, image image.Image) error {
 				curr.G,
 				curr.B,
 			)
-			seen[hashColor(curr)] = curr
+			seen[hashColor(&curr)] = curr
 			prev = curr
 			index += 1
 
