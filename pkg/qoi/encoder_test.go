@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"image/png"
+	"os"
 	"testing"
 )
 
@@ -12,7 +13,7 @@ func TestEncode(t *testing.T) {
 		t.Run(fname, func(t *testing.T) {
 
 			// given
-			pngFile, err := data.Open(fmt.Sprintf("data/%s.png", fname))
+			pngFile, err := os.Open(fmt.Sprintf("./data/%s.png", fname))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -52,7 +53,7 @@ func BenchmarkEncode(b *testing.B) {
 
 			// read and decode png file
 			b.StopTimer()
-			qoiFile, err := data.Open(fmt.Sprintf("data/%s.qoi", fname))
+			qoiFile, err := os.Open(fmt.Sprintf("./data/%s.qoi", fname))
 			if err != nil {
 				b.Fatal(err)
 			}
@@ -60,7 +61,7 @@ func BenchmarkEncode(b *testing.B) {
 			if err != nil {
 				b.Fatal(err)
 			}
-			pngFile, err := data.Open(fmt.Sprintf("data/%s.png", fname))
+			pngFile, err := os.Open(fmt.Sprintf("./data/%s.png", fname))
 			if err != nil {
 				b.Fatal(err)
 			}

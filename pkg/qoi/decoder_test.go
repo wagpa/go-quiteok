@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"image"
 	"image/png"
+	"os"
 	"testing"
 )
 
@@ -16,11 +17,11 @@ func TestDecode(t *testing.T) {
 		t.Run(fname, func(t *testing.T) {
 
 			// given
-			qoiFile, err := data.Open(fmt.Sprintf("data/%s.qoi", fname))
+			qoiFile, err := os.Open(fmt.Sprintf("./data/%s.qoi", fname))
 			if err != nil {
 				t.Fatal(err)
 			}
-			pngFile, err := data.Open(fmt.Sprintf("data/%s.png", fname))
+			pngFile, err := os.Open(fmt.Sprintf("./data/%s.png", fname))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -56,7 +57,7 @@ func BenchmarkDecode(b *testing.B) {
 
 				// read file
 				b.StopTimer()
-				qoiFile, err := data.Open(fmt.Sprintf("data/%s.qoi", fname))
+				qoiFile, err := os.Open(fmt.Sprintf("./data/%s.qoi", fname))
 				if err != nil {
 					b.Fatal(err)
 				}
@@ -70,4 +71,6 @@ func BenchmarkDecode(b *testing.B) {
 			}
 		})
 	}
+	// fix linter by doing something with `decoded`
+	decoded.ColorModel()
 }
