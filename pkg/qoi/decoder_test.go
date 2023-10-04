@@ -1,25 +1,15 @@
-package test
+package qoi
 
 import (
-	"embed"
 	"fmt"
-	"go_quiteok/pkg/qoi"
+	"image"
 	"image/png"
 	"testing"
 )
 
-//go:embed all:data/*
-var data embed.FS
-
-var testFiles = []string{
-	"testcard",
-	"dice",
-	"kodim10",
-	"kodim23",
-	"qoi_logo",
-	"testcard_rgba",
-	"wikipedia_008",
-}
+var (
+	decoded image.Image
+)
 
 func TestDecode(t *testing.T) {
 	for _, fname := range testFiles {
@@ -40,7 +30,7 @@ func TestDecode(t *testing.T) {
 			}
 
 			// when
-			qoiImg, err := qoi.Decode(qoiFile)
+			qoiImg, err := Decode(qoiFile)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -62,19 +52,21 @@ func TestDecode(t *testing.T) {
 func BenchmarkDecode(b *testing.B) {
 	for _, fname := range testFiles {
 		b.Run(fname, func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
 
-			// read file
-			b.StopTimer()
-			f, err := data.Open(fmt.Sprintf("data/%s.qoi", fname))
-			if err != nil {
-				b.Fatal(err)
-			}
-			b.StartTimer()
+				// read file
+				b.StopTimer()
+				qoiFile, err := data.Open(fmt.Sprintf("data/%s.qoi", fname))
+				if err != nil {
+					b.Fatal(err)
+				}
+				b.StartTimer()
 
-			// decode file
-			_, err = qoi.Decode(f)
-			if err != nil {
-				b.Fatal(err)
+				// decode file
+				decoded, err = Decode(qoiFile)
+				if err != nil {
+					b.Fatal(err)
+				}
 			}
 		})
 	}

@@ -10,14 +10,14 @@ import (
 )
 
 func Decode(r io.Reader) (image.Image, error) {
-	conf, err := decodeConfig(r)
+	conf, err := DecodeConfig(r)
 	if err != nil {
 		return nil, err
 	}
 	return decodePixels(r, conf)
 }
 
-func decodeConfig(r io.Reader) (image.Config, error) {
+func DecodeConfig(r io.Reader) (image.Config, error) {
 	// read the header bytes
 	buf := make([]byte, 14)
 	if _, err := io.ReadAtLeast(r, buf, len(buf)); err != nil {
@@ -73,7 +73,7 @@ func decodePixels(r io.Reader, conf image.Config) (image.Image, error) {
 				pix[1] = buf[2]
 				pix[2] = buf[3]
 				pix[3] = last[3]
-				seen[hashColor(pix)] = pix
+				seen[hashPix(pix)] = pix
 				last = pix
 			case buf[0] == OpRgba:
 				if _, err := r.Read(buf[1:5]); err != nil {
@@ -83,23 +83,23 @@ func decodePixels(r io.Reader, conf image.Config) (image.Image, error) {
 				pix[1] = buf[2]
 				pix[2] = buf[3]
 				pix[3] = buf[4]
-				seen[hashColor(pix)] = pix
+				seen[hashPix(pix)] = pix
 				last = pix
-			case buf[0]&OpMask == OpIndex:
+			case buf[0]&opMask == OpIndex:
 				s := seen[buf[0]]
 				pix[0] = s[0]
 				pix[1] = s[1]
 				pix[2] = s[2]
 				pix[3] = s[3]
 				last = pix
-			case buf[0]&OpMask == OpDiff:
+			case buf[0]&opMask == OpDiff:
 				pix[0] = last[0] + (buf[0]>>4)&0x3 - 2
 				pix[1] = last[1] + (buf[0]>>2)&0x3 - 2
 				pix[2] = last[2] + (buf[0]>>0)&0x3 - 2
 				pix[3] = last[3]
-				seen[hashColor(pix)] = pix
+				seen[hashPix(pix)] = pix
 				last = pix
-			case buf[0]&OpMask == OpLuma:
+			case buf[0]&opMask == OpLuma:
 				if _, err := r.Read(buf[1:2]); err != nil {
 					return nil, err
 				}
@@ -110,9 +110,9 @@ func decodePixels(r io.Reader, conf image.Config) (image.Image, error) {
 				pix[1] = last[1] + dg
 				pix[2] = last[2] + db
 				pix[3] = last[3]
-				seen[hashColor(pix)] = pix
+				seen[hashPix(pix)] = pix
 				last = pix
-			case buf[0]&OpMask == OpRun:
+			case buf[0]&opMask == OpRun:
 				run = buf[0]&0b00111111 + 1
 				if run > 62 || run < 1 {
 					return nil, fmt.Errorf("%w: actual %d", ErrInvalidRunLength, run)
@@ -132,7 +132,7 @@ func decodePixels(r io.Reader, conf image.Config) (image.Image, error) {
 		return nil, err
 	}
 	if !bytes.Equal(buf, eof[:]) {
-		return nil, ErrInvalidEOF
+		return nil, fmt.Errorf("%w: expected %b, actual %b", ErrInvalidEOF, eof, buf)
 	}
 
 	return img, nil
