@@ -7,6 +7,8 @@ import (
 	"io"
 )
 
+// Encode encodes an image.Image to an io.Writer with the QuiteOk image format (qoi).
+// It first uses EncodeConfig to encode the image config and then encodes the pixel data.
 func Encode(w io.Writer, img image.Image) error {
 	if err := EncodeConfig(w, img); err != nil {
 		return err
@@ -14,6 +16,8 @@ func Encode(w io.Writer, img image.Image) error {
 	return encodePixels(w, img)
 }
 
+// EncodeConfig encodes an image.Config to an io.Writer with the QuiteOk image format (qoi).
+// The advanced io.Writer cannot be used to then Encode the image.Image.
 func EncodeConfig(w io.Writer, img image.Image) error {
 	buf := make([]byte, 0, 14)
 
@@ -28,12 +32,10 @@ func EncodeConfig(w io.Writer, img image.Image) error {
 }
 
 func encodePixels(w io.Writer, img image.Image) error {
-
 	last := color.NRGBA{A: 255}
 	seen := make([]color.NRGBA, 64)
 	run := 0
 
-	// encode
 	for y := 0; y < img.Bounds().Dy(); y++ {
 		for x := 0; x < img.Bounds().Dx(); x++ {
 			curr := color.NRGBAModel.Convert(img.At(x, y)).(color.NRGBA)
@@ -42,7 +44,7 @@ func encodePixels(w io.Writer, img image.Image) error {
 			// handle run
 			if run >= 62 || (run >= 1 && last != curr) {
 				_, err := w.Write([]byte{
-					OpRun | byte(run-1),
+					opRun | byte(run-1),
 				})
 				if err != nil {
 					return err
@@ -50,17 +52,17 @@ func encodePixels(w io.Writer, img image.Image) error {
 				run = 0
 			}
 
-			// OpRun
+			// opRun
 			if last == curr {
 				run += 1
 				continue
 			}
 
-			// OpIndex
+			// opIndex
 			other := seen[hash]
 			if other == curr {
 				_, err := w.Write([]byte{
-					OpIndex | hash,
+					opIndex | hash,
 				})
 				if err != nil {
 					return err
@@ -72,13 +74,13 @@ func encodePixels(w io.Writer, img image.Image) error {
 
 			if curr.A == last.A {
 
-				// OpDiff
+				// opDiff
 				dr := curr.R - last.R
 				dg := curr.G - last.G
 				db := curr.B - last.B
 				if (254 <= dr || dr <= 1) && (254 <= dg || dg <= 1) && (254 <= db || db <= 1) {
 					_, err := w.Write([]byte{
-						OpDiff | ((dr + 2) << 4) | ((dg + 2) << 2) | ((db + 2) << 0),
+						opDiff | ((dr + 2) << 4) | ((dg + 2) << 2) | ((db + 2) << 0),
 					})
 					if err != nil {
 						return err
@@ -88,12 +90,12 @@ func encodePixels(w io.Writer, img image.Image) error {
 					continue
 				}
 
-				// OpLuma
+				// opLuma
 				drDg := dr - dg
 				dbDg := db - dg
 				if (248 <= drDg || drDg <= 7) && (224 <= dg || dg <= 31) && (248 <= dbDg || dbDg <= 7) {
 					_, err := w.Write([]byte{
-						OpLuma | (dg + 32),
+						opLuma | (dg + 32),
 						((drDg + 8) << 4) | (dbDg + 8),
 					})
 					if err != nil {
@@ -104,9 +106,9 @@ func encodePixels(w io.Writer, img image.Image) error {
 					continue
 				}
 
-				// OpRgb
+				// opRgb
 				_, err := w.Write([]byte{
-					OpRgb,
+					opRgb,
 					curr.R,
 					curr.G,
 					curr.B,
@@ -119,9 +121,9 @@ func encodePixels(w io.Writer, img image.Image) error {
 				continue
 			}
 
-			// OpRgba
+			// opRgba
 			_, err := w.Write([]byte{
-				OpRgba,
+				opRgba,
 				curr.R,
 				curr.G,
 				curr.B,
@@ -135,10 +137,10 @@ func encodePixels(w io.Writer, img image.Image) error {
 		}
 	}
 
-	// handle run
+	// handle dangling run
 	if run >= 1 {
 		_, err := w.Write([]byte{
-			OpRun | byte(run-1),
+			opRun | byte(run-1),
 		})
 		if err != nil {
 			return err

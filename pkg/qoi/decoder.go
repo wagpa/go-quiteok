@@ -9,6 +9,8 @@ import (
 	"io"
 )
 
+// Decode decodes an QuiteOk (qoi) image.Image from an io.Reader.
+// It first uses DecodeConfig to decode the image config and then decodes the pixel data.
 func Decode(r io.Reader) (image.Image, error) {
 	conf, err := DecodeConfig(r)
 	if err != nil {
@@ -17,6 +19,8 @@ func Decode(r io.Reader) (image.Image, error) {
 	return decodePixels(r, conf)
 }
 
+// DecodeConfig decodes an QuiteOk (qoi) image.Config from an io.Reader.
+// The advanced io.Reader cannot be used to then Decode the image.Image.
 func DecodeConfig(r io.Reader) (image.Config, error) {
 	// read the header bytes
 	buf := make([]byte, 14)
@@ -46,7 +50,6 @@ func decodePixels(r io.Reader, conf image.Config) (image.Image, error) {
 		seen[i] = &zeroPixel
 	}
 
-	// decode
 	for y := 0; y < conf.Height; y++ {
 		for x := 0; x < conf.Width; x++ {
 			off := img.PixOffset(x, y)
@@ -65,7 +68,7 @@ func decodePixels(r io.Reader, conf image.Config) (image.Image, error) {
 				return nil, err
 			}
 			switch {
-			case buf[0] == OpRgb:
+			case buf[0] == opRgb:
 				if _, err := r.Read(buf[1:4]); err != nil {
 					return nil, err
 				}
@@ -75,7 +78,7 @@ func decodePixels(r io.Reader, conf image.Config) (image.Image, error) {
 				pix[3] = last[3]
 				seen[hashPix(pix)] = pix
 				last = pix
-			case buf[0] == OpRgba:
+			case buf[0] == opRgba:
 				if _, err := r.Read(buf[1:5]); err != nil {
 					return nil, err
 				}
@@ -85,21 +88,21 @@ func decodePixels(r io.Reader, conf image.Config) (image.Image, error) {
 				pix[3] = buf[4]
 				seen[hashPix(pix)] = pix
 				last = pix
-			case buf[0]&opMask == OpIndex:
+			case buf[0]&op2Mask == opIndex:
 				s := seen[buf[0]]
 				pix[0] = s[0]
 				pix[1] = s[1]
 				pix[2] = s[2]
 				pix[3] = s[3]
 				last = pix
-			case buf[0]&opMask == OpDiff:
+			case buf[0]&op2Mask == opDiff:
 				pix[0] = last[0] + (buf[0]>>4)&0x3 - 2
 				pix[1] = last[1] + (buf[0]>>2)&0x3 - 2
 				pix[2] = last[2] + (buf[0]>>0)&0x3 - 2
 				pix[3] = last[3]
 				seen[hashPix(pix)] = pix
 				last = pix
-			case buf[0]&opMask == OpLuma:
+			case buf[0]&op2Mask == opLuma:
 				if _, err := r.Read(buf[1:2]); err != nil {
 					return nil, err
 				}
@@ -112,10 +115,10 @@ func decodePixels(r io.Reader, conf image.Config) (image.Image, error) {
 				pix[3] = last[3]
 				seen[hashPix(pix)] = pix
 				last = pix
-			case buf[0]&opMask == OpRun:
+			case buf[0]&op2Mask == opRun:
 				run = buf[0]&0b00111111 + 1
 				if run > 62 || run < 1 {
-					return nil, fmt.Errorf("%w: actual %d", ErrInvalidRunLength, run)
+					return nil, fmt.Errorf("%w: must be between 1 and 62, actual %d", ErrInvalidRunLength, run)
 				}
 				// first run iteration
 				run -= 1
