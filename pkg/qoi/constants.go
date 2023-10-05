@@ -52,3 +52,5 @@ func hashPix(pix *[4]uint8) byte {
 func hashColor(col color.NRGBA) byte {
 	return (col.R*3 + col.G*5 + col.B*7 + col.A*11) % 64
 }
+
+var _ = Format
